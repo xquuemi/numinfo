@@ -14,7 +14,7 @@ SESSION_STRING = os.environ["SESSION_STRING"]
 PORT = int(os.environ.get("PORT", 8080))
 
 TARGETS = [
-    "ZeroLayerGC",
+    "DT_USERTONUMBOT",
     "Num2inf0Bot"
 ]
 
