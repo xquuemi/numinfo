@@ -13,7 +13,7 @@ API_HASH = os.environ["API_HASH"]
 SESSION_STRING = os.environ["SESSION_STRING"]
 
 TARGETS = [
-    "ZeroLayerGC",
+    "LegendxInfoChattingGc",
     "Num2inf0Bot"
 ]
 
