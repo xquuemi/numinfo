@@ -11,18 +11,18 @@ from pyrogram.errors import FloodWait
 API_ID = int(os.environ["API_ID"])
 API_HASH = os.environ["API_HASH"]
 SESSION_STRING = os.environ["SESSION_STRING"]
-PORT = int(os.environ.get("PORT", 8080))
 
 TARGETS = [
-    "LegendxInfoChattingGc",
+    "ZeroLayerGC",
     "Num2inf0Bot"
 ]
 
-WAIT_TIME = 35
+WAIT_TIME = 40
+PORT = int(os.environ.get("PORT", 8080))
 # ==========================================
 
 app = Client(
-    name="railway_userbot",
+    name="userbot",
     api_id=API_ID,
     api_hash=API_HASH,
     session_string=SESSION_STRING
@@ -31,11 +31,34 @@ app = Client(
 routes = web.RouteTableDef()
 lock = asyncio.Lock()
 
-# ---------------- HELPERS ----------------
+# ---------------- FILTER ----------------
 
-def is_processing(text):
-    t = text.lower()
-    return any(k in t for k in ["searching", "processing", "please wait", "⏳"])
+def deep_clean(data):
+    remove_keys = [
+        "developer",
+        "requested_by",
+        "command",
+        "credit",
+        "credits"
+    ]
+
+    if isinstance(data, dict):
+        cleaned = {}
+        for k, v in data.items():
+            if k.lower() in remove_keys:
+                continue
+            cleaned[k] = deep_clean(v)
+        return cleaned
+
+    elif isinstance(data, list):
+        return [deep_clean(i) for i in data]
+
+    elif isinstance(data, str):
+        # remove @username
+        return re.sub(r"@\w+", "", data)
+
+    return data
+
 
 def extract_json(text):
     m = re.search(r"\{[\s\S]*\}", text)
@@ -46,37 +69,35 @@ def extract_json(text):
     except:
         return None
 
-def looks_final(text):
-    keys = ["name", "mobile", "father", "address", "circle", "id"]
-    t = text.lower()
-    return any(k in t for k in keys)
 
-async def send_to_targets(message):
+def is_processing(text):
+    t = text.lower()
+    return any(k in t for k in ["searching", "processing", "please wait", "⏳"])
+
+
+async def send_command(cmd):
     for target in TARGETS:
         try:
-            print(f"Sending to {target}: {message}")
-            msg = await app.send_message(target, message)
+            msg = await app.send_message(target, cmd)
             return msg, target
         except FloodWait as f:
             await asyncio.sleep(f.value)
-        except Exception as e:
-            print("Target failed:", target, e)
+        except:
             continue
-    raise Exception("All targets failed")
+    raise Exception("No target accepted command")
 
-async def collect_response(message):
+
+async def collect_response(cmd):
     async with lock:
-        sent, chat = await send_to_targets(message)
+        sent, chat = await send_command(cmd)
         sent_id = sent.id
 
     start = time.time()
-    seen = set()
 
     while time.time() - start < WAIT_TIME:
-        async for m in app.get_chat_history(chat, limit=150):
-            if m.id <= sent_id or m.id in seen:
+        async for m in app.get_chat_history(chat, limit=200):
+            if m.id <= sent_id:
                 continue
-            seen.add(m.id)
 
             if not m.text:
                 continue
@@ -86,35 +107,41 @@ async def collect_response(message):
             if is_processing(text):
                 continue
 
+            # JSON case
             js = extract_json(text)
             if js:
-                return [{"type": "json", "data": js}]
+                cleaned = deep_clean(js)
+                return [{
+                    "type": "json",
+                    "data": cleaned
+                }]
 
-            if looks_final(text):
-                return [{"type": "text", "data": text}]
+            # Plain text case
+            cleaned_text = re.sub(r"@\w+", "", text)
+            return [{
+                "type": "text",
+                "data": cleaned_text
+            }]
 
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.4)
 
     return None
 
-# ---------------- API ----------------
+
+# ---------------- API ROUTES ----------------
 
 async def api_handler(req, cmd):
     q = req.query.get("number")
-    mode = req.query.get("mode", "command")
-
     if not q:
         return web.json_response({"error": "number missing"})
 
-    message = f"/{cmd} {q}" if mode == "command" else q
-
-    try:
-        data = await collect_response(message)
-    except Exception as e:
-        return web.json_response({"error": str(e)})
+    data = await collect_response(f"/{cmd} {q}")
 
     if not data:
-        return web.json_response({"query": q, "status": "timeout"})
+        return web.json_response({
+            "query": q,
+            "status": "timeout"
+        })
 
     return web.json_response({
         "query": q,
@@ -122,70 +149,64 @@ async def api_handler(req, cmd):
         "responses": data
     })
 
+
 @routes.get("/num")
-async def num(req): return await api_handler(req, "num")
+async def num(req):
+    return await api_handler(req, "num")
+
 
 @routes.get("/aadhar")
-async def aadhar(req): return await api_handler(req, "aadhar")
+async def aadhar(req):
+    return await api_handler(req, "aadhar")
+
 
 @routes.get("/family")
-async def family(req): return await api_handler(req, "family")
+async def family(req):
+    return await api_handler(req, "family")
+
 
 @routes.get("/tg")
-async def tg(req): return await api_handler(req, "tg")
+async def tg(req):
+    return await api_handler(req, "tg")
 
-# ---------------- HTML UI ----------------
+
+# ---------------- BASIC UI ----------------
 
 INDEX_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Railway Userbot</title>
+<title>Rio Panel</title>
 <style>
-body{margin:0;background:#020617;color:#fff;font-family:system-ui}
-.wrap{max-width:420px;margin:auto;padding:16px}
-h1{text-align:center;color:#22d3ee}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.btn{padding:14px;border-radius:14px;background:#000;border:1px solid #22d3ee;color:#22d3ee;text-align:center;font-weight:700}
-.btn.active{background:#22d3ee;color:#000}
-input,button{width:100%;margin-top:12px;padding:14px;border-radius:14px;border:none}
-input{background:#000;color:#22d3ee;border:1px solid #22d3ee}
-button{background:linear-gradient(90deg,#22d3ee,#3b82f6);font-weight:800}
-.out{margin-top:14px;background:#000;padding:14px;border-radius:14px;border:1px solid #22d3ee44;white-space:pre-wrap;font-size:13px}
+body{background:#000;color:#0ff;font-family:system-ui;padding:20px}
+input,button{width:100%;padding:12px;margin-top:10px;border-radius:10px;border:none}
+input{background:#111;color:#0ff}
+button{background:#0ff;color:#000;font-weight:700}
+pre{background:#111;padding:15px;margin-top:15px;white-space:pre-wrap}
 </style>
 </head>
 <body>
-<div class="wrap">
-<h1>⚡ USERBOT PANEL</h1>
-
-<div class="grid">
-<div class="btn active" onclick="setType('num',this)">📞 Number</div>
-<div class="btn" onclick="setType('aadhar',this)">🪪 Aadhaar</div>
-<div class="btn" onclick="setType('family',this)">👨‍👩‍👧 Family</div>
-<div class="btn" onclick="setType('tg',this)">💬 Telegram</div>
-</div>
-
+<h2>⚡ Userbot Panel</h2>
+<select id="type">
+<option value="num">Number</option>
+<option value="aadhar">Aadhar</option>
+<option value="family">Family</option>
+<option value="tg">Telegram</option>
+</select>
 <input id="q" placeholder="Enter value">
-<button onclick="run()">RUN SEARCH</button>
-
-<div class="out" id="out">Waiting…</div>
-</div>
-
+<button onclick="run()">Search</button>
+<pre id="out">Waiting...</pre>
 <script>
-let TYPE="num";
-function setType(t,el){
-TYPE=t;
-document.querySelectorAll('.btn').forEach(b=>b.classList.remove('active'));
-el.classList.add('active');
-}
 function run(){
-const q=document.getElementById("q").value;
+let t=document.getElementById("type").value;
+let q=document.getElementById("q").value;
 if(!q)return;
-fetch(`/${TYPE}?number=${encodeURIComponent(q)}`)
+document.getElementById("out").textContent="Loading...";
+fetch(`/${t}?number=${encodeURIComponent(q)}`)
 .then(r=>r.json())
-.then(d=>document.getElementById("out").textContent=JSON.stringify(d,null,2))
-.catch(()=>document.getElementById("out").textContent="ERROR");
+.then(d=>document.getElementById("out").textContent=
+JSON.stringify(d,null,2));
 }
 </script>
 </body>
@@ -196,15 +217,12 @@ fetch(`/${TYPE}?number=${encodeURIComponent(q)}`)
 async def index(_):
     return web.Response(text=INDEX_HTML, content_type="text/html")
 
+
 # ---------------- MAIN ----------------
 
 async def main():
-    try:
-        await app.start()
-        print("Telegram connected")
-    except Exception as e:
-        print("Telegram login failed:", e)
-        return
+    await app.start()
+    print("Telegram connected")
 
     webapp = web.Application()
     webapp.add_routes(routes)
@@ -214,7 +232,7 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
 
-    print("Web running on port", PORT)
+    print("Web running")
 
     while True:
         await asyncio.sleep(3600)
