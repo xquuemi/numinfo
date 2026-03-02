@@ -14,7 +14,7 @@ SESSION_STRING = os.environ["SESSION_STRING"]
 PORT = int(os.environ.get("PORT", 8080))
 
 TARGETS = [
-    "DT_USERTONUMBOT",
+    "EncoreXgroup",
     "Num2inf0Bot"
 ]
 
